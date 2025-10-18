@@ -129,22 +129,29 @@ func ExampleFullAppLifecycle() {
 	// Output: 完整生命周期事件已记录
 }
 
-// ExampleWithEncryption 演示加密通讯
-func ExampleWithEncryption() {
-	// 创建启用加密的客户端
-	client := analytics.NewClient(
+// ExampleWithAESEncryption 演示 AES 加密通讯
+// 注意：加密功能应使用 NewAESClient，而不是 NewClient + WithEncryption
+func ExampleWithAESEncryption() {
+	// 创建 AES 加密客户端
+	aesClient := analytics.NewAESClient(
 		"http://localhost:8080",
-		"my-awesome-app",
-		analytics.WithEncryption("your-32-byte-secret-key-here!"),
-		analytics.WithDebug(true),
+		"your-32-byte-secret-key-here!", // 32字节密钥
 	)
-	defer client.Close()
 
-	// 所有数据将自动加密传输
-	client.ReportInstall()
-	client.TrackAppLaunch(nil)
-
-	fmt.Println("加密通讯已启用")
+	// 使用加密方式发送数据
+	data := map[string]interface{}{
+		"product":   "my-awesome-app",
+		"device_id": "test-device-123",
+		"timestamp": time.Now().Unix(),
+	}
 	
-	// Output: 加密通讯已启用
+	_, err := aesClient.PostEncrypted("/api/installs/push", data)
+	if err != nil {
+		fmt.Printf("发送失败: %v\n", err)
+		return
+	}
+
+	fmt.Println("AES 加密通讯已启用")
+	
+	// Output: AES 加密通讯已启用
 }

@@ -5,6 +5,9 @@
 //	client := analytics.NewClient("http://your-server.com", "YourApp")
 //	defer client.Close()
 //
+//	// 可选：上报安装信息
+//	client.ReportInstall()
+//
 //	client.Track("event_name", map[string]interface{}{
 //	    "key": "value",
 //	})
@@ -26,6 +29,12 @@ import (
 	"github.com/shirou/gopsutil/v4/host"
 )
 
+// EncryptionConfig 加密配置
+type EncryptionConfig struct {
+	Enabled   bool
+	SecretKey string
+}
+
 // Client 分析客户端
 type Client struct {
 	serverURL      string
@@ -43,6 +52,7 @@ type Client struct {
 	logger         Logger
 	sessionID      string
 	sessionStarted time.Time
+	encryption     *EncryptionConfig // 加密配置
 }
 
 // Event 表示一个分析事件
@@ -122,11 +132,35 @@ func WithLogger(logger Logger) ClientOption {
 	}
 }
 
+// WithEncryption 启用 AES 加密传输
+// secretKey 必须是 16、24 或 32 字节长度，对应 AES-128、AES-192 或 AES-256
+func WithEncryption(secretKey string) ClientOption {
+	return func(c *Client) {
+		c.encryption = &EncryptionConfig{
+			Enabled:   true,
+			SecretKey: secretKey,
+		}
+	}
+}
+
 // NewClient 创建新的分析客户端
 //
 // serverURL: 分析服务器地址，例如 "http://localhost:8080"
 // productName: 产品名称，用于区分不同应用
 // opts: 可选配置项
+//
+// 注意：NewClient 不会自动上报安装信息。如需上报，请调用 client.ReportInstall()
+//
+// 示例：
+//
+//	client := analytics.NewClient("http://localhost:8080", "MyApp")
+//	defer client.Close()
+//	
+//	// 可选：上报安装信息
+//	client.ReportInstall()
+//	
+//	// 发送事件
+//	client.Track("button_click", map[string]interface{}{"button": "submit"})
 func NewClient(serverURL, productName string, opts ...ClientOption) *Client {
 	client := &Client{
 		serverURL:     serverURL,
@@ -153,59 +187,6 @@ func NewClient(serverURL, productName string, opts ...ClientOption) *Client {
 	// 启动后台处理
 	client.wg.Add(1)
 	go client.processEvents()
-
-	// 异步上报安装信息（包含本地IP与公网IP）
-	go func() {
-		// 尝试获取主机信息
-		info, err := host.Info()
-		if err != nil {
-			if client.debug && client.logger != nil {
-				client.logger.Printf("[Analytics] host.Info error: %v", err)
-			}
-			return
-		}
-
-		// 收集IP信息
-		localIPs := getLocalIPs()
-		publicIP := getPublicIP(client.httpClient)
-
-		apiURL := fmt.Sprintf("%s/%s", client.serverURL, "api/installs/push")
-		timestamp := time.Now().Unix()
-		product := client.productName
-		signStr := fmt.Sprintf("%s#%s#%d", product, info.HostID, timestamp)
-		// 简单 SHA256 签名；如果没有 utils.Sha256，使用 fmt.Sprintf for placeholder
-		sign := ""
-		// try to use existing marshal helper to avoid import cycles
-		if hashed, err := marshalSHA256(signStr); err == nil {
-			sign = hashed
-		} else {
-			sign = ""
-		}
-
-		body := map[string]interface{}{
-			"product":    product,
-			"device_id":  info.HostID,
-			"timestamp":  timestamp,
-			"sign":       sign,
-			"local_ips":  localIPs,
-			"public_ip":  publicIP,
-		}
-
-		data, _ := json.Marshal(body)
-		// use http client directly with Post
-		resp, err := client.httpClient.Post(apiURL, "application/json", bytes.NewReader(data))
-		if err != nil {
-			if client.debug && client.logger != nil {
-				client.logger.Printf("[Analytics] register install info failed: %v", err)
-			}
-			return
-		}
-		defer resp.Body.Close()
-		if client.debug && client.logger != nil {
-			b, _ := ioutil.ReadAll(resp.Body)
-			client.logger.Printf("[Analytics] register install info success: %s", string(b))
-		}
-	}()
 	
 	return client
 }
@@ -234,7 +215,16 @@ func (c *Client) Track(eventName string, properties map[string]interface{}) {
 
 // TrackEvent 发送分类事件（Google Analytics 风格）
 //
-//	client.TrackEvent("user", "login", "email", 1)
+// Deprecated: Use Track instead for better flexibility.
+// Migration example:
+//
+//	Old: client.TrackEvent("user", "login", "email", 1)
+//	New: client.Track("user_login", map[string]interface{}{
+//	    "category": "user",
+//	    "action": "login",
+//	    "label": "email",
+//	    "value": 1,
+//	})
 func (c *Client) TrackEvent(category, action, label string, value float64) {
 	event := &Event{
 		Name:      action,
@@ -256,6 +246,13 @@ func (c *Client) TrackEvent(category, action, label string, value float64) {
 }
 
 // TrackSync 同步发送事件（阻塞直到发送完成）
+//
+// Deprecated: Use Track followed by Flush for better control.
+// Migration example:
+//
+//	Old: err := client.TrackSync("user_login", properties)
+//	New: client.Track("user_login", properties)
+//	     client.Flush()
 func (c *Client) TrackSync(eventName string, properties map[string]interface{}) error {
 	event := &Event{
 		Name:       eventName,
@@ -378,9 +375,42 @@ func (c *Client) sendEvents(events []*Event) error {
 		return fmt.Errorf("marshal events: %w", err)
 	}
 	
+	// 如果启用了加密，加密数据
+	var requestBody []byte
+	var contentType string
+	
+	if c.encryption != nil && c.encryption.Enabled {
+		// 使用 AES 加密
+		encrypted, err := AESEncrypt([]byte(c.encryption.SecretKey), data)
+		if err != nil {
+			if c.debug && c.logger != nil {
+				c.logger.Printf("[Analytics] Failed to encrypt events: %v", err)
+			}
+			return fmt.Errorf("encrypt events: %w", err)
+		}
+		
+		// 构建加密请求体
+		encryptedPayload := map[string]string{
+			"data": encrypted,
+		}
+		requestBody, err = json.Marshal(encryptedPayload)
+		if err != nil {
+			return fmt.Errorf("marshal encrypted payload: %w", err)
+		}
+		contentType = "application/json"
+		
+		if c.debug && c.logger != nil {
+			c.logger.Printf("[Analytics] Events encrypted, sending %d bytes", len(requestBody))
+		}
+	} else {
+		// 不加密，直接发送
+		requestBody = data
+		contentType = "application/json"
+	}
+	
 	// 发送请求
 	url := fmt.Sprintf("%s/api/events/batch", c.serverURL)
-	resp, err := c.httpClient.Post(url, "application/json", bytes.NewReader(data))
+	resp, err := c.httpClient.Post(url, contentType, bytes.NewReader(requestBody))
 	if err != nil {
 		if c.debug && c.logger != nil {
 			c.logger.Printf("[Analytics] Failed to send events: %v", err)

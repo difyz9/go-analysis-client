@@ -20,6 +20,9 @@ func main() {
 
 	log.Println("Analytics client started...")
 
+	// 0. 上报安装信息（可选）
+	client.ReportInstall()
+
 	// 1. 发送简单事件
 	client.Track("app_start", map[string]interface{}{
 		"version": "1.0.0",
@@ -32,8 +35,12 @@ func main() {
 		"screen": "home",
 	})
 
-	// 3. 发送 Google Analytics 风格事件
-	client.TrackEvent("user", "login", "email", 1)
+	// 3. 发送自定义属性事件（推荐方式）
+	client.Track("user_login", map[string]interface{}{
+		"category": "user",
+		"action":   "login",
+		"method":   "email",
+	})
 
 	// 4. 批量发送事件
 	events := []analytics.Event{
@@ -54,18 +61,15 @@ func main() {
 	}
 	client.TrackBatch(events)
 
-	// 5. 同步发送重要事件
-	log.Println("Sending critical event synchronously...")
-	err := client.TrackSync("payment", map[string]interface{}{
-		"amount": 99.99,
+	// 5. 发送重要事件并等待完成（推荐方式）
+	log.Println("Sending critical event and waiting for completion...")
+	client.Track("payment", map[string]interface{}{
+		"amount":   99.99,
 		"currency": "USD",
-		"item": "premium_plan",
+		"item":     "premium_plan",
 	})
-	if err != nil {
-		log.Printf("Failed to send payment event: %v", err)
-	} else {
-		log.Println("Payment event sent successfully")
-	}
+	client.Flush() // 等待所有事件发送完成
+	log.Println("Payment event sent successfully")
 
 	// 6. 模拟一些用户活动
 	for i := 0; i < 10; i++ {

@@ -152,6 +152,7 @@ func (c *Client) TrackAppExit(properties map[string]interface{}) {
 	properties["session_id"] = c.sessionID
 	properties["device_id"] = c.deviceID
 	
-	// 同步发送，确保在应用退出前完成
-	c.TrackSync("app_exit", properties)
+	// 发送退出事件并立即刷新，确保在应用退出前完成
+	c.Track("app_exit", properties)
+	c.Flush()
 }

@@ -22,6 +22,9 @@ func main() {
 	)
 	defer analyticsClient.Close()
 
+	// 上报安装信息（可选）
+	analyticsClient.ReportInstall()
+
 	// 创建 Gin 路由
 	r := gin.Default()
 

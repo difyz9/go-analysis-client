@@ -25,7 +25,7 @@ Go Analysis Client 是一个轻量级、高性能的 Go 语言数据分析 SDK�
 go get github.com/difyz9/go-analysis-client
 ```
 
-### 基础使用
+### 基础使用（30 秒快速开始）
 
 ```go
 package main
@@ -36,18 +36,54 @@ import (
 )
 
 func main() {
-    // 初始化客户端
-    client, err := analytics.NewClient(analytics.Config{
-        ServerURL: "https://your-analytics-server.com",
-        ProductID: "your-product-id",
-        APIKey:    "your-api-key",
-    })
-    if err != nil {
-        log.Fatal(err)
-    }
+    // 1. 创建客户端
+    client := analytics.NewClient(
+        "http://localhost:8080",  // 服务器地址
+        "MyApp",                  // 产品名称
+        analytics.WithDebug(true),
+    )
     defer client.Close()
 
-    // 上报安装信息（首次启动或每次启动）
+    // 2. 可选：上报安装信息
+    client.ReportInstall()
+
+    // 3. 发送事件
+    client.Track("user_login", map[string]interface{}{
+        "platform": "web",
+        "version":  "1.0.0",
+    })
+
+    log.Println("事件已发送！")
+}
+```
+
+### 完整示例（包含生命周期）
+
+```go
+package main
+
+import (
+    analytics "github.com/difyz9/go-analysis-client"
+)
+
+func main() {
+    // 创建客户端
+    client := analytics.NewClient(
+        "http://localhost:8080",
+        "MyApp",
+        analytics.WithDebug(true),
+        analytics.WithUserID("user123"),
+    )
+    
+    // 确保退出时发送剩余事件
+    defer func() {
+        client.TrackAppExit(map[string]interface{}{
+            "exit_reason": "normal",
+        })
+        client.Close()
+    }()
+
+    // 上报安装信息（可选）
     client.ReportInstall()
 
     // 记录应用启动
@@ -55,22 +91,10 @@ func main() {
         "version": "1.0.0",
     })
 
-    // 发送事件
-    err = client.Track(analytics.Event{
-        Name:   "user_login",
-        UserID: "user123",
-        Properties: map[string]interface{}{
-            "platform": "web",
-            "version":  "1.0.0",
-        },
-    })
-    if err != nil {
-        log.Printf("发送事件失败: %v", err)
-    }
-
-    // 应用退出前记录
-    client.TrackAppExit(map[string]interface{}{
-        "exit_reason": "normal",
+    // 发送业务事件
+    client.Track("button_click", map[string]interface{}{
+        "button": "submit",
+        "screen": "home",
     })
 }
 ```
@@ -229,21 +253,54 @@ func AnalyticsMiddleware(client *analytics.Client) gin.HandlerFunc {
 
 ## API 参考
 
-### Client 方法
+### 推荐 API
 
-- `NewClient(config Config) (*Client, error)` - 创建客户端
-- `Track(event Event) error` - 发送单个事件
-- `TrackBatch(events []Event) error` - 批量发送事件
-- `TrackUser(userEvent UserEvent) error` - 发送用户事件
+我们推荐使用以下核心 API，它们简洁、灵活且功能完整：
+
+#### 🎯 事件追踪
+
+```go
+// 推荐：使用 Track 发送所有事件（异步，高性能）
+client.Track("user_login", map[string]interface{}{
+    "method": "email",
+    "platform": "web",
+})
+
+// 如需同步等待：使用 Track + Flush
+client.Track("critical_event", properties)
+client.Flush()  // 等待所有事件发送完成
+```
+
+#### 📦 批量发送
+
+```go
+// 批量发送多个事件
+client.TrackBatch([]analytics.Event{
+    {Name: "event1", Properties: map[string]interface{}{"key": "value1"}},
+    {Name: "event2", Properties: map[string]interface{}{"key": "value2"}},
+})
+```
+
+### 已废弃 API
+
+以下方法仍然可用以保持向后兼容，但不推荐在新代码中使用：
+
+- ⚠️ `TrackEvent(category, action, label, value)` - 已废弃，请使用 `Track` 替代
+- ⚠️ `TrackSync(eventName, properties)` - 已废弃，请使用 `Track + Flush` 替代
+
+### 完整方法列表
+
+- `NewClient(serverURL, productName string, opts ...ClientOption) *Client` - 创建客户端
+- `Track(eventName string, properties map[string]interface{})` - **推荐**：发送事件（异步）
+- `TrackBatch(events []Event)` - **推荐**：批量发送事件
+- `Flush()` - **推荐**：立即刷新缓冲区
 - `ReportInstall()` - 上报安装信息（异步）
 - `ReportInstallWithCallback(callback func(error))` - 上报安装信息并回调
 - `TrackAppLaunch(properties map[string]interface{})` - 记录应用启动
 - `TrackAppExit(properties map[string]interface{})` - 记录应用退出
-- `SetDevice(device DeviceInfo)` - 设置设备信息
 - `SetUserID(userID string)` - 设置用户ID
 - `GetDeviceID() string` - 获取设备ID
 - `GetSessionID() string` - 获取会话ID
-- `Flush() error` - 立即刷新缓存的事件
 - `Close()` - 关闭客户端
 
 ### 配置结构

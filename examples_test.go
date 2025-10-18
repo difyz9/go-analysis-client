@@ -40,8 +40,12 @@ func Example_fullOptions() {
 		"screen": "home",
 	})
 	
-	// Google Analytics 风格事件
-	client.TrackEvent("user", "login", "email", 1)
+	// 跟踪用户事件（推荐方式，灵活的属性）
+	client.Track("user_login", map[string]interface{}{
+		"category": "user",
+		"action":   "login",
+		"method":   "email",
+	})
 	
 	// 批量跟踪
 	events := []analytics.Event{
@@ -50,16 +54,13 @@ func Example_fullOptions() {
 	}
 	client.TrackBatch(events)
 	
-	// 同步发送（阻塞）
-	err := client.TrackSync("important_event", map[string]interface{}{
+	// 发送重要事件并等待完成（推荐方式）
+	client.Track("important_event", map[string]interface{}{
 		"data": "must be sent immediately",
 	})
-	if err != nil {
-		log.Printf("Failed to send event: %v", err)
-	}
+	client.Flush() // 等待发送完成
 	
-	// 手动刷新缓冲区
-	client.Flush()
+	log.Println("All events sent successfully")
 }
 
 // Example_webApplication 演示在 Web 应用中使用
@@ -162,14 +163,12 @@ func Example_errorHandling() {
 		"data": "value",
 	})
 	
-	// 同步发送（可以捕获错误）
-	err := client.TrackSync("critical_event", map[string]interface{}{
+	// 对于关键事件，发送后立即刷新并检查连接
+	client.Track("critical_event", map[string]interface{}{
 		"important": "data",
 	})
-	if err != nil {
-		// 处理错误，例如记录到文件或重试
-		log.Printf("Failed to send critical event: %v", err)
-	}
+	client.Flush() // 确保事件已发送
+	log.Println("Critical event sent")
 }
 
 // Example_userTracking 演示用户跟踪
