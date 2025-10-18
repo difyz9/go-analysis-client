@@ -11,7 +11,6 @@
 package analytics
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -19,6 +18,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/shirou/gopsutil/v4/host"
 )
 
 // Client 分析客户端
@@ -339,8 +339,23 @@ func (c *Client) sendEvents(events []*Event) error {
 
 // generateDeviceID 生成设备ID
 func generateDeviceID() string {
-	// 简单实现：使用 UUID
-	// 实际使用时可以从本地文件读取或生成更稳定的ID
+	// 尝试获取系统的唯一标识符
+	if hostID, err := host.HostID(); err == nil && hostID != "" {
+		return hostID
+	}
+	
+	// 如果获取失败，使用机器信息组合生成稳定ID
+	if info, err := host.Info(); err == nil {
+		// 使用主机名、操作系统、平台等信息生成一个相对稳定的ID
+		combined := fmt.Sprintf("%s-%s-%s-%s", 
+			info.Hostname, 
+			info.OS, 
+			info.Platform,
+			info.PlatformVersion)
+		return fmt.Sprintf("%x", uuid.NewSHA1(uuid.NameSpaceOID, []byte(combined)))
+	}
+	
+	// 最后的回退方案：使用 UUID
 	return uuid.New().String()
 }
 
