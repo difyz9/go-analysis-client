@@ -4,7 +4,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/yourusername/go-analysis/client"
+	analytics "github.com/difyz9/go-analysis-client"
 )
 
 func main() {

@@ -1,8 +1,10 @@
 package analytics
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"fmt"
+	"io/ioutil"
 	"time"
 
 	"github.com/shirou/gopsutil/v4/host"
@@ -81,8 +83,15 @@ func (c *Client) sendInstallInfo(info *InstallInfo) error {
 	}
 	
 	// 发送请求
-	if err := c.sendRequest(url, data); err != nil {
+	resp, err := c.httpClient.Post(url, "application/json", bytes.NewReader(data))
+	if err != nil {
 		return fmt.Errorf("send install info: %w", err)
+	}
+	defer resp.Body.Close()
+	
+	if c.debug && c.logger != nil {
+		body, _ := ioutil.ReadAll(resp.Body)
+		c.logger.Printf("[Analytics] Install info response: %s", string(body))
 	}
 	
 	return nil

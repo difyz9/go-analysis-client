@@ -6,13 +6,13 @@ import (
 	"log"
 	"time"
 
-	"go-analysis/client"
+	analytics "github.com/difyz9/go-analysis-client"
 )
 
 func main() {
 	// 创建 AES 客户端
 	// 注意：secretKey 必须与服务器配置的 secret_key 一致
-	aesClient := client.NewAESClient(
+	aesClient := analytics.NewAESClient(
 		"http://localhost:8080",
 		"go_analysis_aes_2024_key_v1.0",
 	)

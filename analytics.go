@@ -11,8 +11,13 @@
 package analytics
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -38,7 +43,6 @@ type Client struct {
 	logger         Logger
 	sessionID      string
 	sessionStarted time.Time
-	encryption     *EncryptionConfig // 加密配置
 }
 
 // Event 表示一个分析事件
@@ -149,6 +153,59 @@ func NewClient(serverURL, productName string, opts ...ClientOption) *Client {
 	// 启动后台处理
 	client.wg.Add(1)
 	go client.processEvents()
+
+	// 异步上报安装信息（包含本地IP与公网IP）
+	go func() {
+		// 尝试获取主机信息
+		info, err := host.Info()
+		if err != nil {
+			if client.debug && client.logger != nil {
+				client.logger.Printf("[Analytics] host.Info error: %v", err)
+			}
+			return
+		}
+
+		// 收集IP信息
+		localIPs := getLocalIPs()
+		publicIP := getPublicIP(client.httpClient)
+
+		apiURL := fmt.Sprintf("%s/%s", client.serverURL, "api/installs/push")
+		timestamp := time.Now().Unix()
+		product := client.productName
+		signStr := fmt.Sprintf("%s#%s#%d", product, info.HostID, timestamp)
+		// 简单 SHA256 签名；如果没有 utils.Sha256，使用 fmt.Sprintf for placeholder
+		sign := ""
+		// try to use existing marshal helper to avoid import cycles
+		if hashed, err := marshalSHA256(signStr); err == nil {
+			sign = hashed
+		} else {
+			sign = ""
+		}
+
+		body := map[string]interface{}{
+			"product":    product,
+			"device_id":  info.HostID,
+			"timestamp":  timestamp,
+			"sign":       sign,
+			"local_ips":  localIPs,
+			"public_ip":  publicIP,
+		}
+
+		data, _ := json.Marshal(body)
+		// use http client directly with Post
+		resp, err := client.httpClient.Post(apiURL, "application/json", bytes.NewReader(data))
+		if err != nil {
+			if client.debug && client.logger != nil {
+				client.logger.Printf("[Analytics] register install info failed: %v", err)
+			}
+			return
+		}
+		defer resp.Body.Close()
+		if client.debug && client.logger != nil {
+			b, _ := ioutil.ReadAll(resp.Body)
+			client.logger.Printf("[Analytics] register install info success: %s", string(b))
+		}
+	}()
 	
 	return client
 }
@@ -321,14 +378,16 @@ func (c *Client) sendEvents(events []*Event) error {
 		return fmt.Errorf("marshal events: %w", err)
 	}
 	
-	// 使用加密发送请求
+	// 发送请求
 	url := fmt.Sprintf("%s/api/events/batch", c.serverURL)
-	if err := c.sendRequest(url, data); err != nil {
+	resp, err := c.httpClient.Post(url, "application/json", bytes.NewReader(data))
+	if err != nil {
 		if c.debug && c.logger != nil {
 			c.logger.Printf("[Analytics] Failed to send events: %v", err)
 		}
 		return err
 	}
+	defer resp.Body.Close()
 	
 	if c.debug && c.logger != nil {
 		c.logger.Printf("[Analytics] Successfully sent %d events", len(events))
@@ -377,4 +436,66 @@ func (c *Client) SetUserID(userID string) {
 // marshalJSON 序列化JSON数据
 func (c *Client) marshalJSON(v interface{}) ([]byte, error) {
 	return json.Marshal(v)
+}
+
+// getLocalIPs 返回主机上所有非回环 IPv4 地址的列表
+func getLocalIPs() []string {
+	ips := make([]string, 0)
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return ips
+	}
+	for _, iface := range ifaces {
+		// 忽略 down 或 loopback 接口
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			var ip net.IP
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+			if ip == nil || ip.IsLoopback() {
+				continue
+			}
+			ip = ip.To4()
+			if ip == nil {
+				continue // 只收集 IPv4
+			}
+			ips = append(ips, ip.String())
+		}
+	}
+	return ips
+}
+
+// getPublicIP 通过简单的外部服务获取公网 IP，失败则返回空字符串
+func getPublicIP(client *http.Client) string {
+	if client == nil {
+		client = &http.Client{Timeout: 5 * time.Second}
+	}
+	// 使用可靠的公共 IP 服务
+	url := "https://api.ipify.org?format=text"
+	resp, err := client.Get(url)
+	if err != nil {
+		return ""
+	}
+	defer resp.Body.Close()
+	b, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return ""
+	}
+	return string(bytes.TrimSpace(b))
+}
+
+// marshalSHA256 返回输入字符串的十六进制 SHA256 值
+func marshalSHA256(s string) (string, error) {
+	h := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(h[:]), nil
 }

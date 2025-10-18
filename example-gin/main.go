@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/yourusername/go-analysis/client"
+	analytics "github.com/difyz9/go-analysis-client"
 )
 
 var analyticsClient *analytics.Client
