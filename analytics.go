@@ -372,7 +372,7 @@ func (c *Client) sendEvents(events []*Event) error {
 		if c.debug && c.logger != nil {
 			c.logger.Printf("[Analytics] Failed to marshal events: %v", err)
 		}
-		return fmt.Errorf("marshal events: %w", err)
+		return newClientError("sendEvents", fmt.Errorf("%w: %v", ErrMarshalFailed, err))
 	}
 	
 	// 如果启用了加密，加密数据
@@ -386,7 +386,7 @@ func (c *Client) sendEvents(events []*Event) error {
 			if c.debug && c.logger != nil {
 				c.logger.Printf("[Analytics] Failed to encrypt events: %v", err)
 			}
-			return fmt.Errorf("encrypt events: %w", err)
+			return newClientError("sendEvents", fmt.Errorf("%w: %v", ErrEncryptionFailed, err))
 		}
 		
 		// 构建加密请求体
@@ -395,7 +395,7 @@ func (c *Client) sendEvents(events []*Event) error {
 		}
 		requestBody, err = json.Marshal(encryptedPayload)
 		if err != nil {
-			return fmt.Errorf("marshal encrypted payload: %w", err)
+			return newClientError("sendEvents", fmt.Errorf("%w: %v", ErrMarshalFailed, err))
 		}
 		contentType = "application/json"
 		
@@ -415,9 +415,18 @@ func (c *Client) sendEvents(events []*Event) error {
 		if c.debug && c.logger != nil {
 			c.logger.Printf("[Analytics] Failed to send events: %v", err)
 		}
-		return err
+		return newNetworkError("POST", url, 0, fmt.Errorf("%w: %v", ErrNetworkFailure, err), true)
 	}
 	defer resp.Body.Close()
+	
+	// 检查 HTTP 状态码
+	if resp.StatusCode >= 500 {
+		// 5xx 错误，可以重试
+		return newNetworkError("POST", url, resp.StatusCode, ErrServerResponse, true)
+	} else if resp.StatusCode >= 400 {
+		// 4xx 错误，通常不应该重试
+		return newNetworkError("POST", url, resp.StatusCode, ErrServerResponse, false)
+	}
 	
 	if c.debug && c.logger != nil {
 		c.logger.Printf("[Analytics] Successfully sent %d events", len(events))
@@ -583,7 +592,7 @@ func (c *Client) reportInstallSync() error {
 	// 获取主机信息
 	info, err := host.Info()
 	if err != nil {
-		return fmt.Errorf("get host info: %w", err)
+		return newClientError("reportInstallSync", fmt.Errorf("get host info: %w", err))
 	}
 	
 	// 构建安装信息
@@ -614,15 +623,22 @@ func (c *Client) sendInstallInfo(info *InstallInfo) error {
 	// 序列化数据
 	data, err := c.marshalJSON(info)
 	if err != nil {
-		return fmt.Errorf("marshal install info: %w", err)
+		return newClientError("sendInstallInfo", fmt.Errorf("%w: %v", ErrMarshalFailed, err))
 	}
 	
 	// 发送请求
 	resp, err := c.httpClient.Post(url, "application/json", bytes.NewReader(data))
 	if err != nil {
-		return fmt.Errorf("send install info: %w", err)
+		return newNetworkError("POST", url, 0, fmt.Errorf("%w: %v", ErrNetworkFailure, err), true)
 	}
 	defer resp.Body.Close()
+	
+	// 检查 HTTP 状态码
+	if resp.StatusCode >= 500 {
+		return newNetworkError("POST", url, resp.StatusCode, ErrServerResponse, true)
+	} else if resp.StatusCode >= 400 {
+		return newNetworkError("POST", url, resp.StatusCode, ErrServerResponse, false)
+	}
 	
 	if c.debug && c.logger != nil {
 		body, _ := ioutil.ReadAll(resp.Body)
