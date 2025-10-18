@@ -14,6 +14,8 @@ Go Analysis Client 是一个轻量级、高性能的 Go 语言数据分析 SDK�
 - 🎯 **批量上报**: 支持事件批量上报，提高传输效率
 - 🛡️ **错误处理**: 完善的错误处理和重试机制
 - 📱 **多平台**: 支持 Web、移动端、服务端等多种场景
+- 📈 **安装统计**: 自动收集安装信息和应用生命周期数据
+- 🔄 **会话管理**: 自动管理用户会话和设备识别
 
 ## 快速开始
 
@@ -45,6 +47,14 @@ func main() {
     }
     defer client.Close()
 
+    // 上报安装信息（首次启动或每次启动）
+    client.ReportInstall()
+
+    // 记录应用启动
+    client.TrackAppLaunch(map[string]interface{}{
+        "version": "1.0.0",
+    })
+
     // 发送事件
     err = client.Track(analytics.Event{
         Name:   "user_login",
@@ -57,6 +67,11 @@ func main() {
     if err != nil {
         log.Printf("发送事件失败: %v", err)
     }
+
+    // 应用退出前记录
+    client.TrackAppExit(map[string]interface{}{
+        "exit_reason": "normal",
+    })
 }
 ```
 
@@ -210,6 +225,7 @@ func AnalyticsMiddleware(client *analytics.Client) gin.HandlerFunc {
 - [Web应用示例](./example-gin/) - 使用Gin框架的Web应用
 - [独立应用示例](./example-standalone/) - 独立Go应用
 - [加密传输示例](./example-aes/) - 启用AES加密的示例
+- [安装统计示例](./example-standalone/install_demo.go) - 完整的安装统计示例
 
 ## API 参考
 
@@ -219,8 +235,14 @@ func AnalyticsMiddleware(client *analytics.Client) gin.HandlerFunc {
 - `Track(event Event) error` - 发送单个事件
 - `TrackBatch(events []Event) error` - 批量发送事件
 - `TrackUser(userEvent UserEvent) error` - 发送用户事件
+- `ReportInstall()` - 上报安装信息（异步）
+- `ReportInstallWithCallback(callback func(error))` - 上报安装信息并回调
+- `TrackAppLaunch(properties map[string]interface{})` - 记录应用启动
+- `TrackAppExit(properties map[string]interface{})` - 记录应用退出
 - `SetDevice(device DeviceInfo)` - 设置设备信息
 - `SetUserID(userID string)` - 设置用户ID
+- `GetDeviceID() string` - 获取设备ID
+- `GetSessionID() string` - 获取会话ID
 - `Flush() error` - 立即刷新缓存的事件
 - `Close()` - 关闭客户端
 
@@ -283,6 +305,13 @@ type Config struct {
 - 💬 [讨论区](https://github.com/difyz9/go-analysis-client/discussions)
 
 ## 更新日志
+
+### v1.1.0
+- ✅ 新增安装信息统计功能
+- ✅ 新增应用生命周期跟踪（启动/退出）
+- ✅ 新增会话管理和设备识别
+- ✅ 支持安装信息回调函数
+- ✅ 优化设备ID生成算法
 
 ### v1.0.0
 - 初始版本发布

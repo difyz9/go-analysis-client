@@ -373,3 +373,8 @@ func (c *Client) GetSessionID() string {
 func (c *Client) SetUserID(userID string) {
 	c.userID = userID
 }
+
+// marshalJSON 序列化JSON数据
+func (c *Client) marshalJSON(v interface{}) ([]byte, error) {
+	return json.Marshal(v)
+}
