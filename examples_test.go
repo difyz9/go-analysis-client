@@ -5,7 +5,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/yourusername/go-analysis/client"
+	analytics "github.com/difyz9/go-analysis-client"
 )
 
 // Example_quickStart 演示最简单的 3 行使用方式
