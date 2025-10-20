@@ -10,7 +10,7 @@ import (
 
 // Example_quickStart 演示最简单的 3 行使用方式
 func Example_quickStart() {
-	client := analytics.NewClient("http://localhost:8080", "MyApp")
+	client := analytics.NewClient("http://localhost:8097", "MyApp")
 	defer client.Close()
 	
 	client.Track("page_view", map[string]interface{}{
